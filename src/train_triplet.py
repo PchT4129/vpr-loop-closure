@@ -47,6 +47,8 @@ def main():
     parser.add_argument("--margin", type=float, default=0.2)
     parser.add_argument("--positive-tolerance", type=int, default=3)
     parser.add_argument("--negative-gap", type=int, default=20)
+    parser.add_argument("--min-index", type=int, default=None)
+    parser.add_argument("--max-index", type=int, default=None)
     args = parser.parse_args()
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -56,6 +58,8 @@ def main():
         database_dir=args.database_dir,
         positive_tolerance=args.positive_tolerance,
         negative_gap=args.negative_gap,
+        min_index=args.min_index,
+        max_index=args.max_index,
     )
 
     loader = DataLoader(

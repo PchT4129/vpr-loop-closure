@@ -37,8 +37,17 @@ class TripletPlaceDataset(Dataset):
         transform: Callable | None = None,
         positive_tolerance: int = 3,
         negative_gap: int = 20,
+        min_index: int | None = None,
+        max_index: int | None = None,
     ):
-        self.anchor_paths = find_images(anchor_dir)
+
+        self.anchor_paths = [
+            path
+            for path in find_images(anchor_dir)
+            if (min_index is None or image_index_from_path(path) >= min_index)
+            and (max_index is None or image_index_from_path(path) <= max_index)
+        ]
+
         self.database_paths = find_images(database_dir)
         self.transform = transform or get_default_transform()
         self.positive_tolerance = positive_tolerance
