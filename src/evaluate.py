@@ -73,29 +73,89 @@ def evaluate_retrieval(
     return metrics
 
 
+def select_query_indices(
+    query_paths: list[str],
+    split_name: str,
+    min_index: int | None = None,
+    max_index: int | None = None,
+) -> list[int]:
+    selected_indices = []
+
+    for index, path in enumerate(query_paths):
+        if f"/{split_name}/" not in path:
+            continue
+
+        image_index = image_index_from_path(path)
+        if min_index is not None and image_index < min_index:
+            continue
+        if max_index is not None and image_index > max_index:
+            continue
+
+        selected_indices.append(index)
+
+    return selected_indices
+
+
+def print_metrics(
+    split_name: str,
+    num_queries: int,
+    tolerance: int,
+    metrics: dict[str, float],
+    min_index: int | None = None,
+    max_index: int | None = None,
+):
+    print("=" * 80)
+    print(f"Split: {split_name}")
+    print(f"Num queries: {num_queries}")
+    print(f"Tolerance: ±{tolerance} frames")
+
+    if min_index is not None or max_index is not None:
+        min_label = "*" if min_index is None else str(min_index)
+        max_label = "*" if max_index is None else str(max_index)
+        print(f"Index range: {min_label}-{max_label}")
+
+    for name, value in metrics.items():
+        print(f"{name}: {value:.4f}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--database", type=str, required=True)
     parser.add_argument("--query", type=str, required=True)
     parser.add_argument("--top-k", type=int, default=10)
     parser.add_argument("--tolerance", type=int, default=3)
+    parser.add_argument("--split-name", type=str, default=None)
+    parser.add_argument("--min-index", type=int, default=None)
+    parser.add_argument("--max-index", type=int, default=None)
     args = parser.parse_args()
 
     database_features, database_paths = load_feature_file(args.database)
     query_features, query_paths = load_feature_file(args.query)
 
-    top_scores, top_indices = retrieve_top_k(
+    _, top_indices = retrieve_top_k(
         query_features=query_features,
         database_features=database_features,
         k=args.top_k,
     )
 
-    for split_name in ["day_right", "night_right"]:
-        split_indices = [
-            index
-            for index, path in enumerate(query_paths)
-            if f"/{split_name}/" in path
-        ]
+    split_names = [args.split_name] if args.split_name is not None else [
+        "day_right",
+        "night_right",
+    ]
+
+    for split_name in split_names:
+        split_indices = select_query_indices(
+            query_paths=query_paths,
+            split_name=split_name,
+            min_index=args.min_index,
+            max_index=args.max_index,
+        )
+
+        if len(split_indices) == 0:
+            raise ValueError(
+                f"No queries found for split={split_name}, "
+                f"min_index={args.min_index}, max_index={args.max_index}"
+            )
 
         split_query_paths = [query_paths[index] for index in split_indices]
         split_top_indices = top_indices[split_indices]
@@ -109,13 +169,14 @@ def main():
             tolerance=args.tolerance,
         )
 
-        print("=" * 80)
-        print(f"Split: {split_name}")
-        print(f"Num queries: {len(split_query_paths)}")
-        print(f"Tolerance: ±{args.tolerance} frames")
-
-        for name, value in metrics.items():
-            print(f"{name}: {value:.4f}")
+        print_metrics(
+            split_name=split_name,
+            num_queries=len(split_query_paths),
+            tolerance=args.tolerance,
+            metrics=metrics,
+            min_index=args.min_index,
+            max_index=args.max_index,
+        )
 
 
 if __name__ == "__main__":

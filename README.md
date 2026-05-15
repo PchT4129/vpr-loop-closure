@@ -38,6 +38,8 @@ vpr-loop-closure/
     extract_features.py
     models.py
     retrieve.py
+    train_triplet.py
+    triplet_dataset.py
     visualize.py
   README.md
 ```
@@ -126,6 +128,15 @@ Each `.pt` file stores:
 }
 ```
 
+To extract features with a triplet fine-tuned checkpoint, pass `--checkpoint`:
+
+```bash
+python -m src.extract_features \
+  --image-dir data/gardens_point/query \
+  --output outputs/gardens_query_features_triplet.pt \
+  --checkpoint outputs/checkpoints/resnet18_triplet.pt
+```
+
 ### 3. Retrieve Top-K Matches
 
 ```bash
@@ -148,6 +159,20 @@ python -m src.evaluate \
 The tolerance means that a match is treated as correct if the database image
 index is within `±3` frames of the query image index.
 
+To evaluate a held-out segment, use `--split-name`, `--min-index`, and
+`--max-index`:
+
+```bash
+python -m src.evaluate \
+  --database outputs/gardens_database_features_triplet_split.pt \
+  --query outputs/gardens_query_features_triplet_split.pt \
+  --top-k 10 \
+  --tolerance 3 \
+  --split-name night_right \
+  --min-index 70 \
+  --max-index 99
+```
+
 ### 5. Visualize Retrieval Results
 
 ```bash
@@ -159,10 +184,28 @@ python -m src.visualize \
   --output outputs/visualizations/night_top5_success_123.png
 ```
 
+### 6. Train with Triplet Loss
+
+The triplet training stage uses nighttime images as anchors, nearby daytime
+images as positives, and far-away daytime images as negatives:
+
+```bash
+python -m src.train_triplet \
+  --anchor-dir data/gardens_point/query/night_right \
+  --database-dir data/gardens_point/database/day_left \
+  --output outputs/checkpoints/resnet18_triplet_train_000_069.pt \
+  --epochs 5 \
+  --batch-size 16 \
+  --lr 1e-4 \
+  --margin 0.2 \
+  --min-index 0 \
+  --max-index 69
+```
+
 ## Results
 
 Using 100 database images from `day_left` and 200 query images from `day_right`
-and `night_right`, the baseline obtains:
+and `night_right`, the pretrained ResNet18 baseline obtains:
 
 | Query split | Recall@1 | Recall@5 | Recall@10 | Precision@5 |
 | --- | ---: | ---: | ---: | ---: |
@@ -172,6 +215,31 @@ and `night_right`, the baseline obtains:
 These results show that pretrained ResNet18 descriptors handle moderate lateral
 viewpoint changes well, but performance drops under stronger day-night
 appearance changes.
+
+After triplet-loss fine-tuning on the full `night_right` sequence, retrieval
+improves substantially:
+
+| Query split | Recall@1 | Recall@5 | Recall@10 | Precision@5 |
+| --- | ---: | ---: | ---: | ---: |
+| `day_right` | 0.9900 | 1.0000 | 1.0000 | 0.8800 |
+| `night_right` | 0.8600 | 1.0000 | 1.0000 | 0.7820 |
+
+This shows that metric learning can reshape the embedding space so that
+day-night images of the same place become closer while distant places are pushed
+apart.
+
+For a stricter test, the triplet model was trained only on
+`night_right/Image000.jpg` to `Image069.jpg`, then evaluated on the held-out
+`Image070.jpg` to `Image099.jpg` segment:
+
+| Evaluation split | Recall@1 | Recall@5 | Recall@10 | Precision@5 |
+| --- | ---: | ---: | ---: | ---: |
+| `night_right` train `000-069` | 0.9143 | 1.0000 | 1.0000 | 0.8229 |
+| `night_right` test `070-099` | 0.5667 | 1.0000 | 1.0000 | 0.4933 |
+
+The gap between train and held-out test performance indicates overfitting in
+top-1 ranking, but the perfect held-out Recall@5 suggests that the fine-tuned
+descriptor remains useful for loop-closure candidate retrieval.
 
 ## Qualitative Examples
 
@@ -205,6 +273,8 @@ illumination changes and visually similar corridor-like structures.
 This baseline demonstrates that off-the-shelf CNN global descriptors are already
 useful for visual place recognition. However, the performance gap between
 `day_right` and `night_right` highlights the difficulty of appearance changes.
+Triplet-loss fine-tuning improves day-night retrieval, but the held-out split
+shows why train/test separation is necessary when judging generalization.
 
 In a SLAM system, this type of VPR module would typically be used as a candidate
 retrieval stage:
@@ -221,7 +291,6 @@ damage the pose graph or map.
 
 - Add more systematic failure analysis.
 - Compare ResNet18 with MobileNetV2, ResNet50, or EfficientNet.
-- Fine-tune the descriptor using metric learning and triplet loss.
 - Add hard negative mining for more challenging place recognition.
 - Explore sequence-based matching for smoother retrieval over trajectories.
 - Add geometric verification with local features as a SLAM-style post-filter.

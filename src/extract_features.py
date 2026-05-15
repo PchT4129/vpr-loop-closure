@@ -9,7 +9,26 @@ from src.dataset import ImageFolderDataset, get_default_transform
 from src.models import ResNet18FeatureExtractor
 
 
-def extract_features(image_dir: str | Path, batch_size: int = 16):
+def build_model(checkpoint_path: str | None, device: str):
+    use_pretrained = checkpoint_path is None
+
+    model = ResNet18FeatureExtractor(pretrained=use_pretrained)
+
+    if checkpoint_path is not None:
+        checkpoint = torch.load(checkpoint_path, map_location="cpu")
+        model.load_state_dict(checkpoint["model_state_dict"])
+
+    model = model.to(device)
+    model.eval()
+
+    return model
+
+
+def extract_features(
+    image_dir: str | Path,
+    batch_size: int = 16,
+    checkpoint_path: str | None = None,
+):
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     dataset = ImageFolderDataset(
@@ -24,8 +43,10 @@ def extract_features(image_dir: str | Path, batch_size: int = 16):
         num_workers=2,
     )
 
-    model = ResNet18FeatureExtractor(pretrained=True).to(device)
-    model.eval()
+    model = build_model(
+        checkpoint_path=checkpoint_path,
+        device=device,
+    )
 
     all_features = []
     all_paths = []
@@ -49,11 +70,13 @@ def main():
     parser.add_argument("--image-dir", type=str, required=True)
     parser.add_argument("--output", type=str, required=True)
     parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--checkpoint", type=str, default=None)
     args = parser.parse_args()
 
     features, paths = extract_features(
         image_dir=args.image_dir,
         batch_size=args.batch_size,
+        checkpoint_path=args.checkpoint,
     )
 
     output_path = Path(args.output)
